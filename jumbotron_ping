@@ -1,0 +1,10 @@
+#! /bin/sh
+
+# We use IO pin 27 - it is called gpio 2 in the wiring stuff.
+# http://wiringpi.com/pins/
+PORT=2
+
+gpio mode $PORT out
+gpio write $PORT 1
+sleep 0.8
+gpio write $PORT 0
