@@ -12,7 +12,28 @@ $VERSION = '0.02';
     license     => 'GPL v2+',
     );
 
+my $RATELIMIT_PERIOD = 120;  # Seconds
+my $RATELIMIT_COUNT = 2;
+
+my $last_pingtime = undef;
+my $ping_count = 0;
+
 sub trigger_action {
+    # Basic rate-limiting to avoid people in the space going crazy :)
+    $last_pingtime = time()
+        unless defined($last_pingtime);
+    my $now = time();
+    my $delta = $now - $last_pingtime;
+    if ($delta <= $RATELIMIT_PERIOD) {
+        if ($ping_count >= $RATELIMIT_COUNT) {
+            return;
+        }
+    } else {
+        $last_pingtime = $now;
+        $ping_count = 0;
+    }
+
+    ++$ping_count;
     my $pid1 = fork();
     return unless defined($pid1);
     if ($pid1) {
