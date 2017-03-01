@@ -66,5 +66,37 @@ sub private_hook {
     trigger_action();
 }
 
+
+my $unit_map = {
+  minutter => 60,
+  minutes => 60,
+  timer => 3600,
+  hours => 3600,
+  dage => 86400,
+  days => 86400
+};
+
+sub timeout_handler {
+  for my $server (Irssi::servers()) {
+    next unless $server->{'connected'};
+    for my $channel ($server->channels()) {
+      #next unless $channel->{chanop};
+      my $topic = $channel->{topic};
+      next unless $topic =~ /^(.*)(minutter|timer|dage|minutes|hours|days) (siden|since)([^:]+): *([0-9]+)(.*)$/i;
+      my ($part1, $unit, $part2, $part3, $count, $part4) = ($1, $2, $3, $4, $5, $6);
+      my $last = $channel->{topic_time};
+      my $now = time();
+      my $delta = $unit_map->{$unit};
+      next unless $now >= $last + $delta;
+      ++$count;
+      my $updated_topic = "$part1$unit $part2$part3: $count$part4";
+      $server->send_raw("TOPIC $channel->{name}  :$updated_topic");
+    }
+  }
+}
+
+
+my $timeout_tag = Irssi::timeout_add 60e3, 'timeout_handler', undef;
+
 Irssi::signal_add('message public' => \&public_hook);
 Irssi::signal_add('message private' => \&private_hook);
