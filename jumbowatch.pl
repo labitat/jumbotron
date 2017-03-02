@@ -81,12 +81,14 @@ sub timeout_handler {
     next unless $server->{'connected'};
     for my $channel ($server->channels()) {
       #next unless $channel->{chanop};
+      #next unless $channel->{name} eq '#kntest';
       my $topic = $channel->{topic};
       next unless $topic =~ /^(.*)(minutter|timer|dage|minutes|hours|days) (siden|since)([^:]+): *([0-9]+)(.*)$/i;
       my ($part1, $unit, $part2, $part3, $count, $part4) = ($1, $2, $3, $4, $5, $6);
       my $last = $channel->{topic_time};
       my $now = time();
-      my $delta = $unit_map->{$unit};
+      my $delta = $unit_map->{lc($unit)};
+      next unless $delta;
       next unless $now >= $last + $delta;
       ++$count;
       my $updated_topic = "$part1$unit $part2$part3: $count$part4";
