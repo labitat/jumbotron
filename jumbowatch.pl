@@ -65,7 +65,7 @@ sub public_hook {
     if ($target =~ m/#(?:labitat|(?:kn)?test)/i &&
         $msg =~ m/jumbotron/i &&
         $msg =~ m/power|str..?m/i) {
-        blipreg_start($server, $target);
+        blipreg_start($server, $target, $msg);
     }
 }
 
@@ -109,7 +109,26 @@ sub timeout_handler {
 my $blip_reqs = { };
 
 sub blipreg_start {
-  my ($server, $target) = @_;
+  my ($server, $target, $msg) = @_;
+  $target = lc($target);
+
+  if ($msg =~ /stram/i) {
+    $server->command("MSG $target http://www.stram.cz/");
+    return;
+  }
+  if ($msg =~ /begejstr/i) {
+    $server->command("MSG $target http://www.bs.dk/publikationer/andre/faglig/images/s26.jpg");
+    return;
+  }
+  if ($msg =~ /fr[iou]str[iou]m/i) {
+    $server->command("MSG $target http://www.jf-koeleteknik.dk/produkter/koele-og-frostanlaeg/");
+    return;
+  }
+  unless ($msg =~ /power/i || $msg =~ /str(?:\x{c3}\x{b8}|\x{f8})m/i) {
+    $server->command("MSG $target https://www.youtube.com/watch?v=Ka8bIPqKxiA");
+    return;
+  }
+
   return if scalar(keys(%$blip_reqs)) >= 10;
   my $chld = FileHandle->new;
   my $pid = open $chld, '-|';
@@ -131,7 +150,7 @@ sub blipreg_start {
   Irssi::pidwait_add($pid);
   my $tag = Irssi::input_add(fileno($chld), INPUT_READ, \&blipreg_handler, $pid);
   $blip_reqs->{$pid} = { BUF => '', FH => $chld, HDLR => $tag,
-                         SERVER => $server, TARGET => lc($target) };
+                         SERVER => $server, TARGET => $target };
 }
 
 
