@@ -2,10 +2,8 @@ use strict;
 use vars qw($VERSION %IRSSI);
 
 use POSIX;
-use FileHandle;
-use JSON;
-use LWP::Simple;
 use Irssi;
+
 $VERSION = '0.02';
 %IRSSI = (
     authors     => 'knielsen',
@@ -62,11 +60,6 @@ sub public_hook {
     if ($target =~ m/#(?:labitat|test)/i && $msg =~ m/jumbotron.*[pr]ing/i) {
 	trigger_action();
     }
-    if ($target =~ m/#(?:labitat|(?:kn)?test)/i &&
-        $msg =~ m/jumbotron/i &&
-        $msg =~ m/power|str..?m/i) {
-        blipreg_start($server, $target, $msg);
-    }
 }
 
 sub private_hook {
@@ -106,91 +99,7 @@ sub timeout_handler {
 }
 
 
-my $blip_reqs = { };
-
-sub blipreg_start {
-  my ($server, $target, $msg) = @_;
-  $target = lc($target);
-
-  if ($msg =~ /stram/i) {
-    $server->command("MSG $target http://www.stram.cz/");
-    return;
-  }
-  if ($msg =~ /begejstr/i) {
-    $server->command("MSG $target http://www.bs.dk/publikationer/andre/faglig/images/s26.jpg");
-    return;
-  }
-  if ($msg =~ /fr[iou]str[iou]m/i) {
-    $server->command("MSG $target http://www.jf-koeleteknik.dk/produkter/koele-og-frostanlaeg/");
-    return;
-  }
-  unless ($msg =~ /power/i || $msg =~ /str(?:\x{c3}\x{b8}|\x{f8})m/i) {
-    $server->command("MSG $target https://www.youtube.com/watch?v=Ka8bIPqKxiA");
-    return;
-  }
-
-  return if scalar(keys(%$blip_reqs)) >= 10;
-  my $chld = FileHandle->new;
-  my $pid = open $chld, '-|';
-  if (!defined($pid)) {
-    Irssi::print("Could not fork: $!");
-    return;
-  }
-  if (!$pid) {
-    # Child.
-    $| = 1;
-    my $result = get('https://power.labitat.dk/last/900000');
-    print STDOUT $result;
-    close(STDOUT);
-    POSIX::_exit(0)
-        or die "Oops, could not die?!?";
-  }
-
-  # Parent;
-  Irssi::pidwait_add($pid);
-  my $tag = Irssi::input_add(fileno($chld), INPUT_READ, \&blipreg_handler, $pid);
-  $blip_reqs->{$pid} = { BUF => '', FH => $chld, HDLR => $tag,
-                         SERVER => $server, TARGET => $target };
-}
-
-
-sub blipreg_handler {
-  my ($pid) = @_;
-  return unless exists($blip_reqs->{$pid});
-  my $entry = $blip_reqs->{$pid};
-  my $chunk = '';
-  my $res = sysread($entry->{FH}, $chunk, 4096);
-  if ($res) {
-    $entry->{BUF} .= $chunk;
-    return;
-  }
-
-  my $buf = $entry->{BUF};
-  my $data = from_json($buf);
-  my $usage_now = 3600000 / $data->[-1][1];
-  my $sum = 0;
-  my $count = 0;
-  for my $e (@$data) {
-    $sum += $e->[1];
-    ++$count;
-  }
-  my $usage_15min = 3600000*$count / $sum;
-  my $text = sprintf("Power usage: %.1f W. 15 minute average: %.1f W",
-                     $usage_now, $usage_15min);
-  $entry->{SERVER}->command("MSG $entry->{TARGET} $text");
-  close $entry->{FH};
-  Irssi::input_remove($entry->{HDLR});
-  delete $blip_reqs->{$pid};
-}
-
-
-sub pidwait_hook {
-  my ($pid, $status) = @_;
-}
-
-
 my $timeout_tag = Irssi::timeout_add 60e3, 'timeout_handler', undef;
 
 Irssi::signal_add('message public' => \&public_hook);
 Irssi::signal_add('message private' => \&private_hook);
-Irssi::signal_add('pidwait' => \&pidwait_hook);
