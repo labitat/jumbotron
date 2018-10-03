@@ -50,7 +50,7 @@ sub trigger_action {
 	    POSIX::_exit(0);
 	} else {
 	    # Child.
-	    exec '~jumbotron/jumbotron/jumbotron_ping'
+	    exec '~jumbotron/jumbotron/jumbotron_ping 0.01'
 		or POSIX::_exit(1);
 	}
     }
@@ -59,7 +59,7 @@ sub trigger_action {
 
 sub public_hook {
     my ($server, $msg, $nick, $nick_addr, $target) = @_;
-    if ($target =~ m/#(?:labitat|test)/i && $msg =~ m/jumbotron/i) {
+    if ($target =~ m/#(?:labitat|test)/i && $msg =~ m/jumbotron.*[pr]ing/i) {
 	trigger_action();
     }
     if ($target =~ m/#(?:labitat|(?:kn)?test)/i &&
