@@ -6,5 +6,9 @@ PORT=2
 
 gpio mode $PORT out
 gpio write $PORT 1
-sleep 0.8
+sleep 0.1
+gpio write $PORT 0
+sleep 0.1
+gpio write $PORT 1
+sleep 0.1
 gpio write $PORT 0
