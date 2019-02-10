@@ -1,6 +1,6 @@
 #! /bin/sh
 
-DURATION=${1:-0.1}
+DURATION=${1:-0.01}
 
 # We use IO pin 27 - it is called gpio 2 in the wiring stuff.
 # http://wiringpi.com/pins/
