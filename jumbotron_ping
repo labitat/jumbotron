@@ -6,6 +6,9 @@ DURATION=${1:-0.1}
 # http://wiringpi.com/pins/
 PORT=2
 
+#### tell snake skin to push warning app to stack
+curl http://snakeskin.s/api/push/irc
+
 gpio mode $PORT out
 gpio write $PORT 1
 sleep $DURATION
