@@ -7,7 +7,7 @@ DURATION=${1:-0.01}
 PORT=2
 
 #### tell snake skin to push warning app to stack
-curl http://snakeskin.s/api/push/irc
+curl http://snakeskin.s/api/push/irc >/dev/null 2>&1 &
 
 gpio mode $PORT out
 gpio write $PORT 1
