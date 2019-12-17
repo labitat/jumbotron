@@ -58,18 +58,22 @@ sub blipreq_start {
   sub {
     my ($res, $hdrs) = @_;
     return unless defined($res) && $res ne '';
-    my $data = from_json($res);
-    my $usage_now = 3600000 / $data->[-1][1];
-    my $sum = 0;
-    my $count = 0;
-    for my $e (@$data) {
-      $sum += $e->[1];
-      ++$count;
-    }
-    my $usage_15min = 3600000*$count / $sum;
-    my $text = sprintf("Power usage: %.1f W. 15 minute average: %.1f W",
-                       $usage_now, $usage_15min);
-    $server->command("MSG $target $text");
+    # Catch any exception due to invalid data or similar.
+    eval {
+      my $data = from_json($res);
+      my $usage_now = 3600000 / $data->[-1][1];
+      my $sum = 0;
+      my $count = 0;
+      for my $e (@$data) {
+        $sum += $e->[1];
+        ++$count;
+      }
+      my $usage_15min = 3600000*$count / $sum;
+      my $text = sprintf("Power usage: %.1f W. 15 minute average: %.1f W",
+                         $usage_now, $usage_15min);
+      $server->command("MSG $target $text");
+      1;
+    } or print STDERR "Error showing power usage: $@\n";
   });
   # A bit tricky here, http_get() return is very magic. Unless called in a void
   # context, a "cancellation guard" is returned, which if destroyed will cancel
