@@ -5,6 +5,7 @@ use JSON;
 use Irssi;
 use AnyEvent;
 use AnyEvent::HTTP;
+use AnyEvent::HTTPD;
 use XML::LibXML;
 use HTML::Entities();
 use DateTime;
@@ -226,6 +227,80 @@ sub recent_info {
 
   return $list;
 }
+
+my $httpd;
+
+eval {
+  $httpd = AnyEvent::HTTPD->new(port => 17380);
+
+  $httpd->reg_cb (
+    '/' => sub { httpd_default("Nothing here!", @_); },
+    '/test' => sub { httpd_default("testing...", @_); },
+    '/github' => \&http_github_hook,
+      );
+
+  print "Github hook: initialization done\n";
+  1;
+} or print "Github hook: exception during init: $@\n";
+
+
+sub send_to_hash_labitat {
+  my ($msg) = @_;
+
+  # Silly hack to maybe not get $httpd garbage-collected?
+  return if exists($httpd->{DPES_NOT_EXIST});
+
+  for my $server (Irssi::servers()) {
+    next unless $server->{chatnet} =~ m/labitat/i;
+
+    $server->command("MSG #labitat $msg");
+    last;
+  }
+}
+
+sub httpd_default {
+  my ($stuffs, $httpd, $req) = @_;
+  $req->respond(
+    {content => ['text/plain', $stuffs . "\r\n"]}
+      );
+
+  # Silly hack to maybe not get $httpd garbage-collected?
+  return if exists($httpd->{DPES_NOT_EXIST});
+
+  send_to_hash_labitat("DBG: $stuffs");
+}
+
+sub http_github_hook {
+  my ($httpd, $req) = @_;
+  $req->respond(
+    {content => ['text/plain', "Ok\r\n"]}
+      );
+
+  eval {
+    my $hdrs = $req->headers;
+    my %vars = $req->vars;
+    if (!exists($hdrs->{'x-github-event'})) {
+      print "Github hook: No X-GitHub-Event header, ignoring\n";
+      1;
+    } elsif ($hdrs->{'x-github-event'} ne 'push') {
+      print "Github hook: event type '$hdrs->{'x-github-event'}', ignoring...\n";
+      1;
+    } else {
+      my $payload_json = $vars{payload};
+      my $payload = from_json($payload_json);
+      my $repo = max_string($payload->{repository}{name}, 25);
+      my $pusher = max_string($payload->{pusher}{name}, 25);
+      my $commits = $payload->{commits};
+      my $num = scalar(@$commits);
+      my $plural = ($num == 1 ? '' : 's');
+      my $head_msg = max_string($payload->{head_commit}{message}, 160);
+      my $blurb = "$repo: $pusher pushed $num commit$plural: $head_msg";
+      send_to_hash_labitat($blurb);
+      1;
+    }
+  } or print "Github hook: exception: '$@'\n";
+}
+
 
 Irssi::signal_add('message public' => \&public_hook);
 Irssi::signal_add('message private' => \&private_hook);
