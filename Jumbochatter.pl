@@ -233,7 +233,7 @@ my $httpd;
 our $github_jumbotron_hook_dont_gc_me = [0, undef, "x"];
 
 eval {
-  $httpd = AnyEvent::HTTPD->new(port => 17380);
+  $httpd = AnyEvent::HTTPD->new(port => 17380, host => '::');
   $github_jumbotron_hook_dont_gc_me->[1] = $httpd;
 
   $httpd->reg_cb (
