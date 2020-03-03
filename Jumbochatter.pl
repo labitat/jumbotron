@@ -291,7 +291,10 @@ sub http_github_hook {
       my $commits = $payload->{commits};
       my $num = scalar(@$commits);
       my $plural = ($num == 1 ? '' : 's');
-      my $head_msg = max_string($payload->{head_commit}{message}, 160);
+      my $head_msg = $payload->{head_commit}{message};
+      $head_msg =~ s/[\r\n].*$//s;
+      $head_msg =~ s/[\x00-\x1f]/ /g;
+      $head_msg = max_string($head_msg, 160);
       my $url = $payload->{head_commit}{url};
       my $urltext = (length($url) <= 160 ? " - $url" : "");
       my $blurb = "$repo: $pusher pushed $num commit$plural to $branch \"$head_msg\"$urltext";
