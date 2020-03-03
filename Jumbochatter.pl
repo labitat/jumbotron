@@ -229,9 +229,12 @@ sub recent_info {
 }
 
 my $httpd;
+# Silly hack to maybe not get $httpd garbage-collected?
+our $github_jumbotron_hook_dont_gc_me = [0, undef, "x"];
 
 eval {
   $httpd = AnyEvent::HTTPD->new(port => 17380);
+  $github_jumbotron_hook_dont_gc_me->[1] = $httpd;
 
   $httpd->reg_cb (
     '/' => sub { httpd_default("Nothing here!", @_); },
@@ -247,9 +250,6 @@ eval {
 sub send_to_hash_labitat {
   my ($msg) = @_;
 
-  # Silly hack to maybe not get $httpd garbage-collected?
-  return if exists($httpd->{DPES_NOT_EXIST});
-
   for my $server (Irssi::servers()) {
     next unless $server->{chatnet} =~ m/labitat/i;
 
@@ -263,11 +263,6 @@ sub httpd_default {
   $req->respond(
     {content => ['text/plain', $stuffs . "\r\n"]}
       );
-
-  # Silly hack to maybe not get $httpd garbage-collected?
-  return if exists($httpd->{DPES_NOT_EXIST});
-
-  send_to_hash_labitat("DBG: $stuffs");
 }
 
 sub http_github_hook {
@@ -289,12 +284,17 @@ sub http_github_hook {
       my $payload_json = $vars{payload};
       my $payload = from_json($payload_json);
       my $repo = max_string($payload->{repository}{name}, 25);
+      my $branch = $payload->{ref};
+      $branch =~ s|^.*/||;
+      $branch = max_string($branch, 20);
       my $pusher = max_string($payload->{pusher}{name}, 25);
       my $commits = $payload->{commits};
       my $num = scalar(@$commits);
       my $plural = ($num == 1 ? '' : 's');
       my $head_msg = max_string($payload->{head_commit}{message}, 160);
-      my $blurb = "$repo: $pusher pushed $num commit$plural: $head_msg";
+      my $url = $payload->{head_commit}{url};
+      my $urltext = (length($url) <= 160 ? " - $url" : "");
+      my $blurb = "$repo: $pusher pushed $num commit$plural to $branch \"$head_msg\"$urltext";
       send_to_hash_labitat($blurb);
       1;
     }
