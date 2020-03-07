@@ -20,10 +20,12 @@ $VERSION = '0.01';
     license     => 'GPL v2+',
     );
 
+my $recent_poll_interval = 5*60;
 my $RECENT_MAX_ENTRY = 4;
 my $RECENT_MAX_TITLE = 50;
 my $RECENT_MAX_INFO = 80;
 my $RECENT_MAX_URL = 200;
+my $RECENT_MAX_AUTHOR = 25;
 my $RECENT_FEED_URL =
     'https://labitat.dk/w/api.php?action=feedrecentchanges&feedformat=atom&days=30&limit=30';
 
@@ -93,7 +95,7 @@ sub blipreq_start {
                          $usage_now, $usage_15min);
       $server->command("MSG $target $text");
       1;
-    } or print STDERR "Error showing power usage: $@\n";
+    } or print "Error showing power usage: $@\n";
   });
   # A bit tricky here, http_get() return is very magic. Unless called in a void
   # context, a "cancellation guard" is returned, which if destroyed will cancel
@@ -126,6 +128,8 @@ sub extract_info_from_summary {
 }
 
 
+my $prev_upd = undef;
+
 sub extr_latest_changes {
   my ($dom) = @_;
 
@@ -147,19 +151,37 @@ sub extr_latest_changes {
     my $upd = $upd_node->to_literal();
     my ($sum_node) = $xpc->findnodes('a:summary', $e);
     my $inf = extract_info_from_summary($sum_node->to_literal());
+    my ($author_node) = $xpc->findnodes('a:author/a:name', $e);
+    my $author = defined($author_node) ? $author_node->to_literal() : '<Anon>';
 
-    push @$res, { TITLE=>$title, LINK=>$link, UPD=>$upd, INF=>$inf };
+    push @$res, { TITLE=>$title, LINK=>$link, UPD=>$upd, INF=>$inf, AUT=>$author };
   }
 
   return $res;
 }
 
 
-sub upd2str {
+sub upd_date_diff_to_now {
   my ($upd) = @_;
   my $dt = $f->parse_datetime($upd);
   my $now_dt = DateTime->now();
   my $diff = $now_dt->subtract_datetime_absolute($dt);
+  return $diff;
+}
+
+
+sub upd_date_newer_than_prev {
+  my ($upd, $prev) = @_;
+  my $dt = $f->parse_datetime($upd);
+  my $prev_dt = $f->parse_datetime($prev);
+  my $cmp = DateTime->compare($dt, $prev_dt);
+  return ($cmp > 0);
+}
+
+
+sub upd2str {
+  my ($upd) = @_;
+  my $diff = upd_date_diff_to_now($upd);
   my ($seconds_since) = $diff->in_units('seconds');
   if ($seconds_since <= 3600) {
     return "just now";
@@ -185,20 +207,21 @@ sub recent_start {
 
     # Catch any exception due to invalid data or similar.
     eval {
-      my $lines = recent_info($res);
+      my $lines = recent_info($res, 0);
       for my $text (@$lines) {
         $server->command("MSG $target $text");
       }
       1;
-    } or print STDERR "Error showing power usage: $@\n";
+    } or print "Error showing power usage: $@\n";
   });
   undef;
 }
 
 
 sub recent_info {
-  my ($feed) = @_;
+  my ($feed, $only_since_last) = @_;
 
+  my $next_prev_upd = $prev_upd;
   my $dom = XML::LibXML->load_xml(string => $feed);
   my $latest_changes = extr_latest_changes($dom);
 
@@ -210,23 +233,74 @@ sub recent_info {
     my $link = $h->{LINK};
     my $upd = $h->{UPD};
     my $inf = $h->{INF};
+    my $author = $h->{AUT};
     my $upd_since = upd2str($upd);
+
+    if (!defined($prev_upd)) {
+      $next_prev_upd = $upd
+          if !defined($next_prev_upd) || upd_date_newer_than_prev($upd, $next_prev_upd);
+    } elsif (upd_date_newer_than_prev($upd, $prev_upd)) {
+      $next_prev_upd = $upd if upd_date_newer_than_prev($upd, $next_prev_upd);
+    } elsif ($only_since_last) {
+      # Skip if not newer than what we saw in last poll.
+      next;
+    }
+
     next if exists($seenb4->{$link});
     $seenb4->{$link} = 1;
+
     if (length($inf) > 3) {
-      $inf = ' "'. max_string($inf, $RECENT_MAX_INFO) .'"';
+      $inf = max_string($inf, $RECENT_MAX_INFO);
+      if ($only_since_last) {
+        $inf = ' ('. $inf .')';
+      } else {
+        $inf = ' "'. $inf .'"';
+      }
     } else {
       $inf = '';
     }
     $title = max_string($title, $RECENT_MAX_TITLE);
     $link = max_string($link, $RECENT_MAX_URL);
-    push @$list, "($upd_since): $title$inf - $link";
+    $author = max_string($author, $RECENT_MAX_AUTHOR);
+    my $msg;
+    if ($only_since_last) {
+      $msg = "$author updated \"$title\"$inf - $link"
+    } else {
+      $msg = "($upd_since): $title$inf - $link"
+    }
+    push @$list, $msg;
     ++$count;
     last if $count >= $RECENT_MAX_ENTRY;
   }
 
+  $prev_upd = $next_prev_upd;
   return $list;
 }
+
+
+sub check_new_wiki_changes {
+  AnyEvent::HTTP::http_get($RECENT_FEED_URL,
+  sub {
+    my ($res, $hdrs) = @_;
+    return unless defined($res) && $res ne '';
+
+    # Catch any exception due to invalid data or similar.
+    eval {
+      my $is_first_run = !defined($prev_upd);
+      my $lines = recent_info($res, 1);
+      # First run we run just to get the $prev_upd initialized, but don't
+      # output anything.
+      if (!$is_first_run) {
+        for my $text (@$lines) {
+          send_to_hash_labitat($text);
+        }
+      }
+      1;
+    } or print "Error showing new wiki changes: $@\n";
+  });
+  undef;
+}
+
 
 my $httpd;
 # Silly hack to maybe not get $httpd garbage-collected?
@@ -246,11 +320,19 @@ eval {
   1;
 } or print "Github hook: exception during init: $@\n";
 
+$github_jumbotron_hook_dont_gc_me->[2] = AnyEvent->timer(
+  after => 5,
+  interval => $recent_poll_interval,
+  cb => sub {
+    check_new_wiki_changes();
+  });
+
 
 sub send_to_hash_labitat {
   my ($msg) = @_;
 
   for my $server (Irssi::servers()) {
+    next unless $server->{'connected'};
     next unless $server->{chatnet} =~ m/labitat/i;
 
     $server->command("MSG #labitat $msg");
