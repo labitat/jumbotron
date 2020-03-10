@@ -39,8 +39,8 @@ sub public_hook {
         $msg =~ m/power|str..?m/i) {
         blipreq_start($server, lc($target), $msg);
     } elsif ($target =~ m/#(?:labitat|(?:kn)?test)/i &&
-             ( ($msg =~ m/jumbotron/i && $msg =~ m/recent/i) ||
-               $msg =~ m/^!recent|nylig/i )) {
+             ( ($msg =~ m/jumbotron/i && $msg =~ m/recent|nylig/i) ||
+               $msg =~ m/^!(recent|nylig)/i )) {
         recent_start($server, lc($target), $msg);
     }
 }
