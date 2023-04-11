@@ -57,7 +57,7 @@ sub trigger_action {
 
 sub public_hook {
     my ($server, $msg, $nick, $nick_addr, $target) = @_;
-    if ($target =~ m/#(?:labitat|test)/i && $msg =~ m/jumbotron.*[pr]ing/i) {
+    if ($target =~ m/#(?:labitat|test)/i && $msg =~ m/jumbotron/i) {
 	trigger_action();
     }
 }
