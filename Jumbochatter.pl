@@ -2,6 +2,7 @@ use strict;
 use vars qw($VERSION %IRSSI);
 
 use JSON;
+use POSIX;
 use Irssi;
 use AnyEvent;
 use AnyEvent::HTTP;
@@ -11,7 +12,7 @@ use HTML::Entities();
 use DateTime;
 use DateTime::Format::RFC3339;
 
-$VERSION = '0.01';
+$VERSION = '0.02';
 %IRSSI = (
     authors     => 'knielsen',
     contact     => 'knielsen@knielsen-hq.org',
@@ -32,16 +33,61 @@ my $RECENT_FEED_URL =
 
 my $f = DateTime::Format::RFC3339->new();
 
+# Ring a bell (or something) when Jumbotron is pinged.
+my $RATELIMIT_PERIOD = 120;  # Seconds
+my $RATELIMIT_COUNT = 2;
+
+my $last_pingtime = undef;
+my $ping_count = 0;
+
+sub trigger_action {
+    # Basic rate-limiting to avoid people in the space going crazy :)
+    $last_pingtime = time()
+        unless defined($last_pingtime);
+    my $now = time();
+    my $delta = $now - $last_pingtime;
+    if ($delta <= $RATELIMIT_PERIOD) {
+        if ($ping_count >= $RATELIMIT_COUNT) {
+            return;
+        }
+    } else {
+        $last_pingtime = $now;
+        $ping_count = 0;
+    }
+
+    ++$ping_count;
+    my $pid1 = fork();
+    return unless defined($pid1);
+    if ($pid1) {
+	waitpid $pid1, 0;
+    } else {
+	# Child. Double fork to avoid zombies.
+	my $pid2 = fork();
+	POSIX::_exit(1) unless defined($pid2);
+	if ($pid2) {
+	    # Intermediate parent.
+	    POSIX::_exit(0);
+	} else {
+	    # Child.
+	    exec '~jumbotron/jumbotron/jumbotron_ping 0.35'
+		or POSIX::_exit(1);
+	}
+    }
+}
+
+
 sub public_hook {
     my ($server, $msg, $nick, $nick_addr, $target) = @_;
-    if ($target =~ m/#(?:labitat|(?:kn)?test)/i &&
-        $msg =~ m/jumbotron/i &&
-        $msg =~ m/power|str..?m/i) {
-        blipreq_start($server, lc($target), $msg);
-    } elsif ($target =~ m/#(?:labitat|(?:kn)?test)/i &&
-             ( ($msg =~ m/jumbotron/i && $msg =~ m/recent|nylig/i) ||
-               $msg =~ m/^!(recent|nylig)/i )) {
-        recent_start($server, lc($target), $msg);
+    if ($target =~ m/#(?:labitat|(?:kn)?test)/i) {
+        my $jumbotron_highlight = ($msg =~ m/jumbotron/i);
+        if ($jumbotron_highlight && $msg =~ m/power|str..?m/i) {
+            blipreq_start($server, lc($target), $msg);
+        } elsif ( ($jumbotron_highlight && $msg =~ m/recent|nylig/i) ||
+                  $msg =~ m/^!(recent|nylig)/i ) {
+            recent_start($server, lc($target), $msg);
+        } elsif ($jumbotron_highlight) {
+            trigger_action();
+        }
     }
 }
 
@@ -52,6 +98,8 @@ sub private_hook {
         blipreq_start($server, $nick, $msg);
     } elsif ($msg =~ m/recent|nylig/i) {
       recent_start($server, $nick, $msg);
+    } else {
+      trigger_action();
     }
 }
 
@@ -386,6 +434,39 @@ sub http_github_hook {
   } or print "Github hook: exception: '$@'\n";
 }
 
+
+my $unit_map = {
+  minutter => 60,
+  minutes => 60,
+  timer => 3600,
+  hours => 3600,
+  dage => 86400,
+  days => 86400
+};
+
+sub timeout_handler {
+  for my $server (Irssi::servers()) {
+    next unless $server->{'connected'};
+    for my $channel ($server->channels()) {
+      #next unless $channel->{chanop};
+      #next unless $channel->{name} eq '#kntest';
+      my $topic = $channel->{topic};
+      next unless $topic =~ /^(.*)(minutter|timer|dage|minutes|hours|days) (siden|since)([^:]+): *([-a-z_.]*)([0-9]+)(.*)$/i;
+      my ($part1, $unit, $part2, $part3, $part4, $count, $part5) = ($1, $2, $3, $4, $5, $6, $7);
+      my $last = $channel->{topic_time};
+      my $now = time();
+      my $delta = $unit_map->{lc($unit)};
+      next unless $delta;
+      next unless $now >= $last + $delta;
+      ++$count;
+      my $updated_topic = "$part1$unit $part2$part3: $part4$count$part5";
+      $server->send_raw("TOPIC $channel->{name}  :$updated_topic");
+    }
+  }
+}
+
+
+my $timeout_tag = Irssi::timeout_add 60e3, 'timeout_handler', undef;
 
 Irssi::signal_add('message public' => \&public_hook);
 Irssi::signal_add('message private' => \&private_hook);
