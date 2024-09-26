@@ -48,7 +48,7 @@ sub trigger_action {
 	    POSIX::_exit(0);
 	} else {
 	    # Child.
-	    exec '~jumbotron/jumbotron/jumbotron_ping 0.01'
+	    exec '~/jumbotron/jumbotron/jumbotron_ping 0.01'
 		or POSIX::_exit(1);
 	}
     }
