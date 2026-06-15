@@ -155,6 +155,41 @@ sub blipreq_start {
 }
 
 
+sub doorbell_longpoll {
+  my ($timer) = @_;  # Attempt to avoid the timer getting garbage collected
+  my $start_time = time();
+  AnyEvent::HTTP::http_get('https://bus.labitat.dk/labibus_blip/12',
+                           timeout => 30,
+  sub {
+    my ($res, $hdrs) = @_;
+
+    my $error = 1;
+    if (defined($res) && $res ne '' && $hdrs->{Status} == 200) {
+      # Catch any exception due to invalid data or similar.
+      eval {
+        my $data = from_json($res);
+        my ($ts_stamp, $val) = @$data;
+        $error = undef;
+        if ($val > 0.0) {
+          send_to_hash_labitat("Doorbell ignition!");
+        }
+      }
+    };
+
+    # Schedule a new longpoll "immediately" (but not recursively).
+    # However, check that if we get an error, the error is a timeout (at least
+    # one second passed). If an error occurs immediately, then delay the next
+    # request a bit, just to avoid a http request storm in case of error.
+    $timer = AnyEvent->timer(
+      after => (!$error || time() > $start_time + 1 ? 0 : 1),
+      cb => sub {
+        doorbell_longpoll($timer);
+      });
+  });
+  undef;
+}
+
+
 sub max_string {
   my ($s, $max) = @_;
   if (length($s) > $max) {
@@ -374,6 +409,8 @@ $github_jumbotron_hook_dont_gc_me->[2] = AnyEvent->timer(
   cb => sub {
     check_new_wiki_changes();
   });
+
+doorbell_longpoll(undef);
 
 
 sub send_to_hash_labitat {
