@@ -389,6 +389,7 @@ my $httpd;
 # Silly hack to maybe not get $httpd garbage-collected?
 our $github_jumbotron_hook_dont_gc_me = [0, undef, "x"];
 
+$AnyEvent::HTTP::USERAGENT = 'Mozilla/5.0 (compatible; U; Labitat-Jumbotron/0.1; AnyEvent-HTTP/2.23; +http://software.schmorp.de/pkg/AnyEvent)';
 eval {
   $httpd = AnyEvent::HTTPD->new(port => 17380, host => '::');
   $github_jumbotron_hook_dont_gc_me->[1] = $httpd;
