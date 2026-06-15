@@ -155,10 +155,14 @@ sub blipreq_start {
 }
 
 
+my $prev_longpoll_timestamp;
+
 sub doorbell_longpoll {
   my ($timer) = @_;  # Attempt to avoid the timer getting garbage collected
   my $start_time = time();
-  AnyEvent::HTTP::http_get('https://bus.labitat.dk/labibus_blip/12',
+  $prev_longpoll_timestamp = $start_time * 1000
+      unless defined($prev_longpoll_timestamp);
+  AnyEvent::HTTP::http_get("https://bus.labitat.dk/labibus_blip/12/$prev_longpoll_timestamp",
                            timeout => 30,
   sub {
     my ($res, $hdrs) = @_;
@@ -169,6 +173,7 @@ sub doorbell_longpoll {
       eval {
         my $data = from_json($res);
         my ($ts_stamp, $val) = @$data;
+        $prev_longpoll_timestamp = $ts_stamp;
         $error = undef;
         if ($val > 0.0) {
           send_to_hash_labitat("Doorbell ignition!");
